@@ -103,23 +103,25 @@ public class OpenMeteoSourceTests
     }
 
     [Fact]
-    public async Task FetchAsync_MalformedJson_ReturnsEmpty()
+    public async Task FetchAsync_MalformedJson_ThrowsSoCallerRecordsFailure()
     {
         var source = CreateSource("{ this is not valid json }}}");
-        var records = await source.FetchAsync(_nyc);
-        records.Should().BeEmpty();
+        var act = () => source.FetchAsync(_nyc);
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Failed to parse*");
     }
 
     [Fact]
-    public async Task FetchAsync_MissingDailyData_ReturnsEmpty()
+    public async Task FetchAsync_MissingDailyData_ThrowsSoCallerRecordsFailure()
     {
         var source = CreateSource("""{ "latitude": 40.71, "longitude": -74.01 }""");
-        var records = await source.FetchAsync(_nyc);
-        records.Should().BeEmpty();
+        var act = () => source.FetchAsync(_nyc);
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Failed to parse*");
     }
 
     [Fact]
-    public async Task FetchAsync_EmptyTimeArray_ReturnsEmpty()
+    public async Task FetchAsync_EmptyTimeArray_ThrowsSoCallerRecordsFailure()
     {
         var json = """
         {
@@ -129,8 +131,9 @@ public class OpenMeteoSourceTests
         }
         """;
         var source = CreateSource(json);
-        var records = await source.FetchAsync(_nyc);
-        records.Should().BeEmpty();
+        var act = () => source.FetchAsync(_nyc);
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Failed to parse*");
     }
 
     [Fact]

@@ -34,32 +34,31 @@ public sealed class OpenMeteoSource : BaseExtractionSource<OpenMeteoDailyData, C
         var json = await _http.GetStringAsync(url, ct);
         var response = ParseResponse(json);
         if (response is null)
-            return [];
+            throw new InvalidOperationException($"Failed to parse response from {SourceName}; see logs for details.");
         return MapToCanonical(response.Daily!, location);
     }
 
-    protected override IReadOnlyList<RawDailyRecord> Normalize(OpenMeteoDailyData daily)
-    {
-        // Build source-field-name → array map from all non-Time properties.
-        // JsonPropertyName takes precedence over C# property name.
-        var fieldArrays = typeof(OpenMeteoDailyData)
+    // Cached once per process — reflection over OpenMeteoDailyData's non-Time properties.
+    private static readonly IReadOnlyList<(string Name, PropertyInfo Prop)> DailyFieldProperties =
+        typeof(OpenMeteoDailyData)
             .GetProperties(BindingFlags.Instance | BindingFlags.Public)
             .Where(p => p.Name != nameof(OpenMeteoDailyData.Time))
-            .Select(p =>
-            {
-                var name = p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? p.Name;
-                return (name, list: p.GetValue(daily) as System.Collections.IList);
-            })
+            .Select(p => (
+                Name: p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? p.Name,
+                Prop: p))
             .ToList();
 
+    protected override IReadOnlyList<RawDailyRecord> Normalize(OpenMeteoDailyData daily)
+    {
         var records = new List<RawDailyRecord>(daily.Time!.Count);
         for (var i = 0; i < daily.Time.Count; i++)
         {
-            var fields = new Dictionary<string, string?>(fieldArrays.Count, StringComparer.OrdinalIgnoreCase);
-            foreach (var (name, list) in fieldArrays)
+            var fields = new Dictionary<string, string?>(DailyFieldProperties.Count, StringComparer.OrdinalIgnoreCase);
+            foreach (var (name, prop) in DailyFieldProperties)
             {
+                var list = prop.GetValue(daily) as System.Collections.IList;
                 var val = list is not null && i < list.Count ? list[i] : null;
-                // Use InvariantCulture so decimal values always use '.' as separator.
+                // InvariantCulture ensures decimal values always use '.' as separator.
                 fields[name] = val is IFormattable f
                     ? f.ToString(null, CultureInfo.InvariantCulture)
                     : val?.ToString();
