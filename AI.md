@@ -4,8 +4,8 @@
 
 **AI-driven:** Initial project scaffolding — folder structure, `.csproj` files, DI wiring in `Program.cs`, and Polly retry configuration. AI generated the boilerplate efficiently so I could focus on design decisions.
 
-**AI-scaffolded, human-refined:** 
+**AI-scaffolded, human-refined:** splitting configuration classes into multiple files
 
-**AI-overridden:** Using strategy pattern with self-selection as it reduces the number of changes needed to implement new sources, splitting configuration classes into multiple files, Claude didn´t use fieldMapping on the source parsing, so i had to implement it myself
+**AI-overridden:** Using strategy pattern with self-selection as it reduces the number of changes needed to implement new sources, Claude didn´t use fieldMapping on the source parsing, so i had to implement it using a more generic approach, implemented BaseExtractionSource to make new implementations easier, implemented Normalize to accept multiple json types with no change of the base class
 
-**Deliberately no AI:** Class summaries, as these are intended to be human readed
+**Deliberately no AI:** Class summaries, as these are intended to be human readed, 

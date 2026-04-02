@@ -1,27 +1,27 @@
 using Microsoft.Extensions.Logging;
 using SyncMetrics.Pipeline.Configuration;
 using SyncMetrics.Pipeline.Models;
+using System.Globalization;
 using System.Reflection;
-using System.Text.Json.Serialization;
 
 namespace SyncMetrics.Pipeline.Extraction;
 
 /// <summary>
-/// Base class for weather sources. Provides a config-driven <see cref="MapToCanonical"/> that
-/// resolves source fields on <typeparamref name="TSourceData"/> by <see cref="JsonPropertyNameAttribute"/>
-/// first, then by property name, and sets target fields on <see cref="TCanonicalRecord"/>
-/// by the <see cref="FieldMapping.Target"/> name with type conversion driven by <see cref="FieldMapping.Type"/>.
+/// Provides a base class for extraction sources that transform source data into canonical records using configurable
+/// field mappings.
 /// </summary>
+/// <remarks>This class defines the core workflow for mapping and normalizing source data into canonical records,
+/// including field mapping validation and logging. Derived classes must implement normalization logic specific to their
+/// data source. </remarks>
+/// <typeparam name="TSourceData">The type representing the raw source data to be normalized and mapped.</typeparam>
+/// <typeparam name="TCanonicalRecord">The type of the canonical record produced by the extraction source. Must implement ICanonicalRecord</typeparam>
 public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
     where TCanonicalRecord : ICanonicalRecord, new()
 {
     protected readonly SourceConfig Config;
     protected readonly ILogger Logger;
 
-    // Static per-type-instantiation: computed once per TSourceData, shared across all instances.
-    private static readonly IReadOnlyDictionary<string, PropertyInfo> SourceProperties =
-        BuildSourcePropertyMap();
-
+    // Target properties cached per TCanonicalRecord type-instantiation.
     private static readonly IReadOnlyDictionary<string, PropertyInfo> TargetProperties =
         typeof(TCanonicalRecord)
             .GetProperties(BindingFlags.Instance | BindingFlags.Public)
@@ -40,14 +40,14 @@ public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
     public abstract Task<IReadOnlyList<TCanonicalRecord>> FetchAsync(
         Location location, CancellationToken ct = default);
 
-    protected virtual List<TCanonicalRecord> MapToCanonical(
-        TSourceData sourceData, IReadOnlyList<string> dates, Location location)
+    protected virtual List<TCanonicalRecord> MapToCanonical(TSourceData sourceData, Location location)
     {
+        var rawRecords = Normalize(sourceData);
         var now = DateTimeOffset.UtcNow;
-        var records = new List<TCanonicalRecord>();
+        var records = new List<TCanonicalRecord>(rawRecords.Count);
 
-        // Resolve and validate all mappings once before the row loop
-        var resolvedMappings = new List<(FieldMapping Mapping, System.Collections.IList? Array, PropertyInfo TargetProp)>();
+        // Validate target mappings once and log any issues before iterating rows.
+        var resolvedMappings = new List<(FieldMapping Mapping, PropertyInfo TargetProp)>();
         foreach (var m in Config.FieldMappings)
         {
             if (!TargetProperties.TryGetValue(m.Target, out var targetProp))
@@ -57,18 +57,24 @@ public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
                     m.Target, typeof(TCanonicalRecord).Name);
                 continue;
             }
-
-            if (!SourceProperties.ContainsKey(m.Source))
-                Logger.LogWarning(
-                    "FieldMapping source '{Source}' not found on {DataType}; field will be null.",
-                    m.Source, typeof(TSourceData).Name);
-
-            resolvedMappings.Add((m, GetSourceArray(sourceData, m.Source), targetProp));
+            resolvedMappings.Add((m, targetProp));
         }
 
-        for (var i = 0; i < dates.Count; i++)
+        // Warn once against the first record if a source field is absent.
+        if (rawRecords.Count > 0)
         {
-            if (!DateOnly.TryParse(dates[i], out var date))
+            foreach (var (m, _) in resolvedMappings)
+            {
+                if (!rawRecords[0].Fields.ContainsKey(m.Source))
+                    Logger.LogWarning(
+                        "FieldMapping source '{Source}' not found in normalized data; field will be null.",
+                        m.Source);
+            }
+        }
+
+        foreach (var raw in rawRecords)
+        {
+            if (!DateOnly.TryParse(raw.Date, out var date))
                 continue;
 
             var record = new TCanonicalRecord
@@ -81,9 +87,9 @@ public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
                 IngestedAtUtc = now
             };
 
-            foreach (var (mapping, arr, targetProp) in resolvedMappings)
+            foreach (var (mapping, targetProp) in resolvedMappings)
             {
-                var rawValue = arr is not null && i < arr.Count ? arr[i] : null;
+                raw.Fields.TryGetValue(mapping.Source, out var rawValue);
                 targetProp.SetValue(record, ConvertValue(rawValue, mapping.Type, targetProp.PropertyType));
             }
 
@@ -93,49 +99,53 @@ public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
         return records;
     }
 
-    private static IReadOnlyDictionary<string, PropertyInfo> BuildSourcePropertyMap()
-    {
-        var dict = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
-        foreach (var prop in typeof(TSourceData).GetProperties(BindingFlags.Instance | BindingFlags.Public))
-        {
-            // JsonPropertyName takes precedence — matches JSON field names like "temperature_2m_max"
-            var jsonAttr = prop.GetCustomAttribute<JsonPropertyNameAttribute>();
-            if (jsonAttr is not null)
-                dict[jsonAttr.Name] = prop;
+    /// <summary>
+    /// Transforms the specified source data into a normalized collection of daily records.
+    /// </summary>
+    /// <remarks>Implementations should ensure that the returned records accurately represent the normalized
+    /// form of the input data. The method does not modify the input parameter.</remarks>
+    /// <param name="sourceData">The input data to be normalized. Must contain the raw information required to produce daily records.</param>
+    /// <returns>A read-only list of normalized daily records derived from the source data. The list will be empty if no records
+    /// are produced.</returns>
+    protected abstract IReadOnlyList<RawDailyRecord> Normalize(TSourceData sourceData);
 
-            // Property name registered as fallback
-            dict.TryAdd(prop.Name, prop);
-        }
-        return dict;
-    }
-
-    private static object? ConvertValue(object? rawValue, string mappingType, Type targetType)
+    /// <summary>
+    /// Converts a raw string value to an object of the specified target type using the provided mapping type.
+    /// </summary>
+    /// <remarks>If the conversion cannot be performed due to format, overflow, or invalid cast, the method
+    /// returns null and logs a warning. Supported mapping types include common primitives such as "int", "decimal",
+    /// "double", "float", and "string". For other types, standard type conversion is attempted using the invariant
+    /// culture.</remarks>
+    /// <param name="rawValue">The string representation of the value to convert. If null, the method returns null.</param>
+    /// <param name="mappingType">A string indicating the type to which the value should be converted (e.g., "int", "decimal", "string").
+    /// Case-insensitive.</param>
+    /// <param name="targetType">The target .NET type to convert the value to. May be a nullable type.</param>
+    /// <returns>An object representing the converted value, or null if the conversion fails or the input value is null.</returns>
+    private object? ConvertValue(string? rawValue, string mappingType, Type targetType)
     {
         if (rawValue is null)
             return null;
 
-        // Step 1 — interpret rawValue as the declared source type from FieldMapping.Type
-        object parsed = mappingType.ToLowerInvariant() switch
+        try
         {
-            "decimal" => Convert.ToDecimal(rawValue),
-            "double" => Convert.ToDouble(rawValue),
-            "float" => Convert.ToSingle(rawValue),
-            "int" or "integer" => Convert.ToInt32(rawValue),
-            "string" => rawValue.ToString()!,
-            _ => rawValue
-        };
+            var underlying = Nullable.GetUnderlyingType(targetType) ?? targetType;
 
-        // Step 2 — convert the intermediate value to the actual target property type
-        var underlying = Nullable.GetUnderlyingType(targetType) ?? targetType;
-        return underlying == parsed.GetType()
-            ? parsed
-            : Convert.ChangeType(parsed, underlying);
-    }
-
-    private static System.Collections.IList? GetSourceArray(TSourceData sourceData, string sourceName)
-    {
-        if (!SourceProperties.TryGetValue(sourceName, out var prop))
+            return mappingType.ToLowerInvariant() switch
+            {
+                "decimal" => (decimal?)decimal.Parse(rawValue, CultureInfo.InvariantCulture),
+                "double" => (double?)double.Parse(rawValue, CultureInfo.InvariantCulture),
+                "float" => (float?)float.Parse(rawValue, CultureInfo.InvariantCulture),
+                "int" or "integer" => (int?)int.Parse(rawValue, CultureInfo.InvariantCulture),
+                "string" => rawValue,
+                _ => Convert.ChangeType(rawValue, underlying, CultureInfo.InvariantCulture)
+            };
+        }
+        catch (Exception ex) when (ex is FormatException or OverflowException or InvalidCastException)
+        {
+            Logger.LogWarning(
+                "Could not convert value '{Value}' as type '{MappingType}'; field will be null.",
+                rawValue, mappingType);
             return null;
-        return prop.GetValue(sourceData) as System.Collections.IList;
+        }
     }
 }
