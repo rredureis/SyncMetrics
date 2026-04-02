@@ -1,6 +1,6 @@
 ﻿namespace SyncMetrics.Pipeline.Models;
 
-public sealed class CanonicalWeatherRecord
+public sealed class CanonicalWeatherRecord : ICanonicalRecord
 {
     public string? LocationName { get; init; }
     public double Latitude { get; init; }

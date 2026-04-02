@@ -7,11 +7,9 @@ using System.Text.Json;
 
 namespace SyncMetrics.Pipeline.Extraction.OpenMeteo;
 
-public sealed class OpenMeteoSource : BaseWeatherSource<OpenMeteoDailyData>
+public sealed class OpenMeteoSource : BaseExtractionSource<OpenMeteoDailyData, CanonicalWeatherRecord>, IWeatherSource
 {
     private readonly IHttpClientWrapper _http;
-
-    public override string SourceName => "OpenMeteo";
 
     public OpenMeteoSource(IHttpClientWrapper http, IOptions<PipelineConfig> config)
         : base(config.Value.Sources.TryGetValue("OpenMeteo", out var src)
@@ -21,8 +19,18 @@ public sealed class OpenMeteoSource : BaseWeatherSource<OpenMeteoDailyData>
         _http = http;
     }
 
+    public override string SourceName => "OpenMeteo";
+
+    public string BuildUrl(Location loc)
+    {
+        var lat = loc.Latitude.ToString(CultureInfo.InvariantCulture);
+        var lon = loc.Longitude.ToString(CultureInfo.InvariantCulture);
+        return $"{Config.BaseUrl}?latitude={lat}&longitude={lon}" +
+               $"&daily={Config.DailyFields}&timezone=auto&forecast_days={Config.ForecastDays}";
+    }
+
     public override bool CanHandle(string sourceName) =>
-        string.Equals(sourceName, SourceName, StringComparison.OrdinalIgnoreCase);
+            string.Equals(sourceName, SourceName, StringComparison.OrdinalIgnoreCase);
 
     public override async Task<IReadOnlyList<CanonicalWeatherRecord>> FetchAsync(
         Location location, CancellationToken ct = default)
@@ -31,14 +39,6 @@ public sealed class OpenMeteoSource : BaseWeatherSource<OpenMeteoDailyData>
         var json = await _http.GetStringAsync(url, ct);
         var response = ParseResponse(json);
         return MapToCanonical(response.Daily!, response.Daily!.Time!, location);
-    }
-
-    public string BuildUrl(Location loc)
-    {
-        var lat = loc.Latitude.ToString(CultureInfo.InvariantCulture);
-        var lon = loc.Longitude.ToString(CultureInfo.InvariantCulture);
-        return $"{Config.BaseUrl}?latitude={lat}&longitude={lon}" +
-               $"&daily={Config.DailyFields}&timezone=auto&forecast_days={Config.ForecastDays}";
     }
 
     internal static OpenMeteoResponse ParseResponse(string json)

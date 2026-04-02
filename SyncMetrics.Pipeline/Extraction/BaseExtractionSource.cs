@@ -5,7 +5,8 @@ using System.Text.Json.Serialization;
 
 namespace SyncMetrics.Pipeline.Extraction;
 
-public abstract class BaseWeatherSource<TDailyData> : IWeatherSource
+public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
+    where TCanonicalRecord : ICanonicalRecord, new()
 {
     protected readonly SourceConfig Config;
 
@@ -14,23 +15,24 @@ public abstract class BaseWeatherSource<TDailyData> : IWeatherSource
         BuildSourcePropertyMap();
 
     private static readonly IReadOnlyDictionary<string, PropertyInfo> TargetProperties =
-        typeof(CanonicalWeatherRecord)
+        typeof(TCanonicalRecord)
             .GetProperties(BindingFlags.Instance | BindingFlags.Public)
             .ToDictionary(p => p.Name);
-    protected BaseWeatherSource(SourceConfig config) => Config = config;
+
+    protected BaseExtractionSource(SourceConfig config) => Config = config;
 
     public abstract string SourceName { get; }
 
     public abstract bool CanHandle(string sourceName);
 
-    public abstract Task<IReadOnlyList<CanonicalWeatherRecord>> FetchAsync(
+    public abstract Task<IReadOnlyList<TCanonicalRecord>> FetchAsync(
         Location location, CancellationToken ct = default);
 
-    protected virtual List<CanonicalWeatherRecord> MapToCanonical(
-        TDailyData dailyData, IReadOnlyList<string> dates, Location location)
+    protected virtual List<TCanonicalRecord> MapToCanonical(
+        TSourceData dailyData, IReadOnlyList<string> dates, Location location)
     {
         var now = DateTimeOffset.UtcNow;
-        var records = new List<CanonicalWeatherRecord>();
+        var records = new List<TCanonicalRecord>();
 
         // Resolve source arrays once per call — avoids repeated reflection per row
         var fieldArrays = Config.FieldMappings
@@ -42,7 +44,7 @@ public abstract class BaseWeatherSource<TDailyData> : IWeatherSource
             if (!DateOnly.TryParse(dates[i], out var date))
                 continue;
 
-            var record = new CanonicalWeatherRecord
+            var record = new TCanonicalRecord
             {
                 LocationName = location.Name,
                 Latitude = location.Latitude,
@@ -70,7 +72,7 @@ public abstract class BaseWeatherSource<TDailyData> : IWeatherSource
     private static IReadOnlyDictionary<string, PropertyInfo> BuildSourcePropertyMap()
     {
         var dict = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
-        foreach (var prop in typeof(TDailyData).GetProperties(BindingFlags.Instance | BindingFlags.Public))
+        foreach (var prop in typeof(TSourceData).GetProperties(BindingFlags.Instance | BindingFlags.Public))
         {
             // JsonPropertyName takes precedence — matches JSON field names like "temperature_2m_max"
             var jsonAttr = prop.GetCustomAttribute<JsonPropertyNameAttribute>();
@@ -101,7 +103,7 @@ public abstract class BaseWeatherSource<TDailyData> : IWeatherSource
         };
     }
 
-    private static List<decimal?>? GetSourceArray(TDailyData dailyData, string sourceName)
+    private static List<decimal?>? GetSourceArray(TSourceData dailyData, string sourceName)
     {
         if (!SourceProperties.TryGetValue(sourceName, out var prop))
             return null;
