@@ -14,7 +14,7 @@ using SyncMetrics.Pipeline.Orchestration;
 using SyncMetrics.Pipeline.Transformation;
 
 var config = new ConfigurationBuilder()
-    .SetBasePath(Directory.GetCurrentDirectory())
+    .SetBasePath(AppContext.BaseDirectory)
     .AddJsonFile("appsettings.json", optional: false)
     .AddJsonFile("appsettings.Development.json", optional: true)
     .Build();

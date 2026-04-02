@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using SyncMetrics.Pipeline.Configuration;
 using SyncMetrics.Pipeline.Models;
 using System.Reflection;
@@ -5,10 +6,17 @@ using System.Text.Json.Serialization;
 
 namespace SyncMetrics.Pipeline.Extraction;
 
+/// <summary>
+/// Base class for weather sources. Provides a config-driven <see cref="MapToCanonical"/> that
+/// resolves source fields on <typeparamref name="TSourceData"/> by <see cref="JsonPropertyNameAttribute"/>
+/// first, then by property name, and sets target fields on <see cref="TCanonicalRecord"/>
+/// by the <see cref="FieldMapping.Target"/> name with type conversion driven by <see cref="FieldMapping.Type"/>.
+/// </summary>
 public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
     where TCanonicalRecord : ICanonicalRecord, new()
 {
     protected readonly SourceConfig Config;
+    protected readonly ILogger Logger;
 
     // Static per-type-instantiation: computed once per TSourceData, shared across all instances.
     private static readonly IReadOnlyDictionary<string, PropertyInfo> SourceProperties =
@@ -19,7 +27,11 @@ public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
             .GetProperties(BindingFlags.Instance | BindingFlags.Public)
             .ToDictionary(p => p.Name);
 
-    protected BaseExtractionSource(SourceConfig config) => Config = config;
+    protected BaseExtractionSource(SourceConfig config, ILogger logger)
+    {
+        Config = config;
+        Logger = logger;
+    }
 
     public abstract string SourceName { get; }
 
@@ -29,15 +41,30 @@ public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
         Location location, CancellationToken ct = default);
 
     protected virtual List<TCanonicalRecord> MapToCanonical(
-        TSourceData dailyData, IReadOnlyList<string> dates, Location location)
+        TSourceData sourceData, IReadOnlyList<string> dates, Location location)
     {
         var now = DateTimeOffset.UtcNow;
         var records = new List<TCanonicalRecord>();
 
-        // Resolve source arrays once per call — avoids repeated reflection per row
-        var fieldArrays = Config.FieldMappings
-            .Select(m => (Mapping: m, Array: GetSourceArray(dailyData, m.Source)))
-            .ToList();
+        // Resolve and validate all mappings once before the row loop
+        var resolvedMappings = new List<(FieldMapping Mapping, System.Collections.IList? Array, PropertyInfo TargetProp)>();
+        foreach (var m in Config.FieldMappings)
+        {
+            if (!TargetProperties.TryGetValue(m.Target, out var targetProp))
+            {
+                Logger.LogWarning(
+                    "FieldMapping target '{Target}' not found on {RecordType}; mapping skipped.",
+                    m.Target, typeof(TCanonicalRecord).Name);
+                continue;
+            }
+
+            if (!SourceProperties.ContainsKey(m.Source))
+                Logger.LogWarning(
+                    "FieldMapping source '{Source}' not found on {DataType}; field will be null.",
+                    m.Source, typeof(TSourceData).Name);
+
+            resolvedMappings.Add((m, GetSourceArray(sourceData, m.Source), targetProp));
+        }
 
         for (var i = 0; i < dates.Count; i++)
         {
@@ -54,11 +81,8 @@ public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
                 IngestedAtUtc = now
             };
 
-            foreach (var (mapping, arr) in fieldArrays)
+            foreach (var (mapping, arr, targetProp) in resolvedMappings)
             {
-                if (!TargetProperties.TryGetValue(mapping.Target, out var targetProp))
-                    continue;
-
                 var rawValue = arr is not null && i < arr.Count ? arr[i] : null;
                 targetProp.SetValue(record, ConvertValue(rawValue, mapping.Type, targetProp.PropertyType));
             }

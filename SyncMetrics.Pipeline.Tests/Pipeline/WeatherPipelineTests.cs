@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using SyncMetrics.Pipeline.Extraction;
@@ -14,6 +15,10 @@ public class WeatherPipelineTests
 {
     private static readonly Location Nyc = new("New York", 40.7128, -74.0060);
     private static readonly Location London = new("London", 51.5074, -0.1278);
+
+    private static WeatherPipeline CreatePipeline(
+        IEnumerable<IWeatherSource> sources, IWeatherTransformer transformer, IOutputWriter writer) =>
+        new(sources, transformer, writer, NullLogger<WeatherPipeline>.Instance);
 
     private static CanonicalWeatherRecord MakeRecord(string location, string date) => new()
     {
@@ -47,7 +52,7 @@ public class WeatherPipelineTests
         writer.WriteAsync(Arg.Any<IReadOnlyList<CanonicalWeatherRecord>>(), Arg.Any<CancellationToken>())
             .Returns("output/test.tsv");
 
-        var pipeline = new WeatherPipeline([source], transformer, writer);
+        var pipeline = CreatePipeline([source], transformer, writer);
         var summary = await pipeline.RunAsync([Nyc, London], "TestSource");
 
         summary.TotalLocations.Should().Be(2);
@@ -73,28 +78,29 @@ public class WeatherPipelineTests
         writer.WriteAsync(Arg.Any<IReadOnlyList<CanonicalWeatherRecord>>(), Arg.Any<CancellationToken>())
             .Returns("output/test.tsv");
 
-        var pipeline = new WeatherPipeline([source], transformer, writer);
+        var pipeline = CreatePipeline([source], transformer, writer);
         var summary = await pipeline.RunAsync([Nyc, London], "TestSource");
 
         summary.SuccessfulLocations.Should().Be(1);
         summary.FailedLocations.Should().Be(1);
         summary.TotalRecords.Should().Be(1); // NYC still produced records
-        summary.Results.First(r => !r.Success).Error.Should().Contain("API timeout");
+        summary.Results!.First(r => !r.Success).Error.Should().Contain("API timeout");
     }
 
     [Fact]
-    public async Task RunAsync_UnknownSource_ThrowsDescriptiveError()
+    public async Task RunAsync_UnknownSource_ReturnsAllLocationsFailed()
     {
         var source = Substitute.For<IWeatherSource>();
         source.CanHandle("UnknownApi").Returns(false);
 
-        var pipeline = new WeatherPipeline(
-            [source], new WeatherTransformer(), Substitute.For<IOutputWriter>());
+        var pipeline = CreatePipeline([source], new WeatherTransformer(), Substitute.For<IOutputWriter>());
 
-        var act = () => pipeline.RunAsync([Nyc], "UnknownApi");
+        var summary = await pipeline.RunAsync([Nyc], "UnknownApi");
 
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*No source registered*UnknownApi*");
+        summary.FailedLocations.Should().Be(1);
+        summary.SuccessfulLocations.Should().Be(0);
+        summary.TotalRecords.Should().Be(0);
+        summary.AllWarnings.Should().ContainSingle().Which.Should().Contain("UnknownApi");
     }
 
     [Fact]
@@ -107,8 +113,7 @@ public class WeatherPipelineTests
             .ThrowsAsync(new HttpRequestException("Server down"));
 
         var writer = Substitute.For<IOutputWriter>();
-        var pipeline = new WeatherPipeline(
-            [source], new WeatherTransformer(), writer);
+        var pipeline = CreatePipeline([source], new WeatherTransformer(), writer);
 
         var summary = await pipeline.RunAsync([Nyc, London], "TestSource");
 
@@ -139,7 +144,7 @@ public class WeatherPipelineTests
         writer.WriteAsync(Arg.Any<IReadOnlyList<CanonicalWeatherRecord>>(), Arg.Any<CancellationToken>())
             .Returns("output/test.tsv");
 
-        var pipeline = new WeatherPipeline([source], new WeatherTransformer(), writer);
+        var pipeline = CreatePipeline([source], new WeatherTransformer(), writer);
 
         var locations = Enumerable.Range(0, 10)
             .Select(i => new Location($"City{i}", 40 + i, -74 + i))

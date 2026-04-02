@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -59,7 +60,7 @@ public class OpenMeteoSourceTests
     }
 
     private OpenMeteoSource CreateSource(IHttpClientWrapper http) =>
-        new(http, DefaultConfig());
+        new(http, DefaultConfig(), NullLogger<OpenMeteoSource>.Instance);
 
     [Fact]
     public async Task FetchAsync_ValidResponse_ReturnsCorrectRecordCount()
@@ -102,30 +103,23 @@ public class OpenMeteoSourceTests
     }
 
     [Fact]
-    public async Task FetchAsync_MalformedJson_ThrowsWithClearMessage()
+    public async Task FetchAsync_MalformedJson_ReturnsEmpty()
     {
         var source = CreateSource("{ this is not valid json }}}");
-
-        var act = () => source.FetchAsync(_nyc);
-
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*Malformed JSON*");
+        var records = await source.FetchAsync(_nyc);
+        records.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task FetchAsync_MissingDailyData_ThrowsWithClearMessage()
+    public async Task FetchAsync_MissingDailyData_ReturnsEmpty()
     {
-        var json = """{ "latitude": 40.71, "longitude": -74.01 }""";
-        var source = CreateSource(json);
-
-        var act = () => source.FetchAsync(_nyc);
-
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*missing daily time series*");
+        var source = CreateSource("""{ "latitude": 40.71, "longitude": -74.01 }""");
+        var records = await source.FetchAsync(_nyc);
+        records.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task FetchAsync_EmptyTimeArray_ThrowsWithClearMessage()
+    public async Task FetchAsync_EmptyTimeArray_ReturnsEmpty()
     {
         var json = """
         {
@@ -135,11 +129,8 @@ public class OpenMeteoSourceTests
         }
         """;
         var source = CreateSource(json);
-
-        var act = () => source.FetchAsync(_nyc);
-
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*missing daily time series*");
+        var records = await source.FetchAsync(_nyc);
+        records.Should().BeEmpty();
     }
 
     [Fact]
@@ -166,7 +157,7 @@ public class OpenMeteoSourceTests
             }
         });
 
-        var source = new OpenMeteoSource(http, config);
+        var source = new OpenMeteoSource(http, config, NullLogger<OpenMeteoSource>.Instance);
         var act = () => source.FetchAsync(_nyc);
 
         await act.Should().ThrowAsync<HttpRequestException>();

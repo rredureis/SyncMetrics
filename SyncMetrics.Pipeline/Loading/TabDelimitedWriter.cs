@@ -49,7 +49,7 @@ public sealed class TabDelimitedWriter : IOutputWriter
                 FormatDecimal(rec.UvIndexMax)));
         }
 
-        await File.WriteAllTextAsync(path, sb.ToString(), Encoding.UTF8, ct);
+        await File.WriteAllTextAsync(path, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct);
         return path;
     }
 

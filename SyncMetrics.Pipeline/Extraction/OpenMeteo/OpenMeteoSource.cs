@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SyncMetrics.Pipeline.Configuration;
 using SyncMetrics.Pipeline.Extraction.OpenMeteo.Models;
@@ -11,18 +12,18 @@ public sealed class OpenMeteoSource : BaseExtractionSource<OpenMeteoDailyData, C
 {
     private readonly IHttpClientWrapper _http;
 
-    public OpenMeteoSource(IHttpClientWrapper http, IOptions<PipelineConfig> config)
-        : base(config.Value.Sources.TryGetValue("OpenMeteo", out var src)
-            ? src
-            : throw new InvalidOperationException("OpenMeteo source not configured."))
+    public OpenMeteoSource(IHttpClientWrapper http, IOptions<PipelineConfig> config, ILogger<OpenMeteoSource> logger)
+        : base(ResolveConfig(config), logger)
     {
         _http = http;
+        if (!config.Value.Sources.ContainsKey("OpenMeteo"))
+            logger.LogError("OpenMeteo source configuration not found in appsettings; all fetch operations will fail.");
     }
 
     public override string SourceName => "OpenMeteo";
 
     public override bool CanHandle(string sourceName) =>
-            string.Equals(sourceName, SourceName, StringComparison.OrdinalIgnoreCase);
+        string.Equals(sourceName, SourceName, StringComparison.OrdinalIgnoreCase);
 
     public override async Task<IReadOnlyList<CanonicalWeatherRecord>> FetchAsync(
         Location location, CancellationToken ct = default)
@@ -30,10 +31,12 @@ public sealed class OpenMeteoSource : BaseExtractionSource<OpenMeteoDailyData, C
         var url = BuildUrl(location);
         var json = await _http.GetStringAsync(url, ct);
         var response = ParseResponse(json);
+        if (response is null)
+            return [];
         return MapToCanonical(response.Daily!, response.Daily!.Time!, location);
     }
 
-    private static OpenMeteoResponse ParseResponse(string json)
+    private OpenMeteoResponse? ParseResponse(string json)
     {
         OpenMeteoResponse? response;
         try
@@ -42,11 +45,15 @@ public sealed class OpenMeteoSource : BaseExtractionSource<OpenMeteoDailyData, C
         }
         catch (JsonException ex)
         {
-            throw new InvalidOperationException($"Malformed JSON from OpenMeteo: {ex.Message}", ex);
+            Logger.LogError(ex, "Malformed JSON received from OpenMeteo.");
+            return null;
         }
 
         if (response?.Daily?.Time is null || response.Daily.Time.Count == 0)
-            throw new InvalidOperationException("OpenMeteo response missing daily time series data.");
+        {
+            Logger.LogError("OpenMeteo response is missing daily time series data.");
+            return null;
+        }
 
         return response;
     }
@@ -58,4 +65,7 @@ public sealed class OpenMeteoSource : BaseExtractionSource<OpenMeteoDailyData, C
         return $"{Config.BaseUrl}?latitude={lat}&longitude={lon}" +
                $"&daily={Config.DailyFields}&timezone=auto&forecast_days={Config.ForecastDays}";
     }
+
+    private static SourceConfig ResolveConfig(IOptions<PipelineConfig> config) =>
+        config.Value.Sources.GetValueOrDefault("OpenMeteo") ?? new SourceConfig();
 }

@@ -1,4 +1,5 @@
-﻿using SyncMetrics.Pipeline.Extraction;
+using Microsoft.Extensions.Logging;
+using SyncMetrics.Pipeline.Extraction;
 using SyncMetrics.Pipeline.Loading;
 using SyncMetrics.Pipeline.Models;
 using SyncMetrics.Pipeline.Transformation;
@@ -11,15 +12,18 @@ public sealed class WeatherPipeline
     private readonly IEnumerable<IWeatherSource> _sources;
     private readonly IWeatherTransformer _transformer;
     private readonly IOutputWriter _writer;
+    private readonly ILogger<WeatherPipeline> _logger;
 
     public WeatherPipeline(
         IEnumerable<IWeatherSource> sources,
         IWeatherTransformer transformer,
-        IOutputWriter writer)
+        IOutputWriter writer,
+        ILogger<WeatherPipeline> logger)
     {
         _sources = sources;
         _transformer = transformer;
         _writer = writer;
+        _logger = logger;
     }
 
     public async Task<PipelineSummary> RunAsync(
@@ -30,8 +34,31 @@ public sealed class WeatherPipeline
         var startedAt = DateTimeOffset.UtcNow;
         var sw = Stopwatch.StartNew();
 
-        var source = _sources.FirstOrDefault(s => s.CanHandle(sourceName))
-            ?? throw new InvalidOperationException($"No source registered for '{sourceName}'.");
+        var source = _sources.FirstOrDefault(s => s.CanHandle(sourceName));
+        if (source is null)
+        {
+            sw.Stop();
+            _logger.LogError("No source registered for '{SourceName}'.", sourceName);
+            return new PipelineSummary
+            {
+                StartedAt = startedAt,
+                CompletedAt = DateTimeOffset.UtcNow,
+                TotalDuration = sw.Elapsed,
+                TotalLocations = locations.Count,
+                SuccessfulLocations = 0,
+                FailedLocations = locations.Count,
+                TotalRecords = 0,
+                AllWarnings = [$"No source registered for '{sourceName}'."],
+                Results = locations.Select(l => new IngestionResult
+                {
+                    LocationName = l.Name,
+                    Source = sourceName,
+                    Success = false,
+                    Error = $"No source registered for '{sourceName}'."
+                }).ToList(),
+                OutputFilePath = null
+            };
+        }
 
         // Extract — fetch all locations concurrently
         var extractionTasks = locations.Select(loc =>
@@ -57,6 +84,7 @@ public sealed class WeatherPipeline
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Failed to write output file.");
                 warnings.Add($"Output write failed: {ex.Message}");
             }
         }
