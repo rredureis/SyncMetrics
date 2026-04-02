@@ -1,5 +1,9 @@
 namespace SyncMetrics.Pipeline.Configuration;
 
+/// <summary>
+/// Represents the configuration settings for a data processing pipeline, including locations, sources, output, and
+/// retry policies.
+/// </summary>
 public sealed class PipelineConfig
 {
     public List<LocationConfig> Locations { get; set; } = [];

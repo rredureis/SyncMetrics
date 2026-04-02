@@ -117,12 +117,12 @@ public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
         // Step 1 — interpret rawValue as the declared source type from FieldMapping.Type
         object parsed = mappingType.ToLowerInvariant() switch
         {
-            "decimal"          => Convert.ToDecimal(rawValue),
-            "double"           => Convert.ToDouble(rawValue),
-            "float"            => Convert.ToSingle(rawValue),
+            "decimal" => Convert.ToDecimal(rawValue),
+            "double" => Convert.ToDouble(rawValue),
+            "float" => Convert.ToSingle(rawValue),
             "int" or "integer" => Convert.ToInt32(rawValue),
-            "string"           => rawValue.ToString()!,
-            _                  => rawValue
+            "string" => rawValue.ToString()!,
+            _ => rawValue
         };
 
         // Step 2 — convert the intermediate value to the actual target property type

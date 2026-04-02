@@ -36,7 +36,7 @@ public class TabDelimitedWriterTests
     }
 
     [Fact]
-    public async Task WriteAsync_EmptyRecords_Throws()
+    public async Task WriteAsync_EmptyRecords_ReturnsNull()
     {
         var config = Microsoft.Extensions.Options.Options.Create(
             new Configuration.PipelineConfig
@@ -48,11 +48,10 @@ public class TabDelimitedWriterTests
                 }
             });
 
-        var writer = new TabDelimitedWriter(config);
+        var writer = new TabDelimitedWriter(config, Microsoft.Extensions.Logging.Abstractions.NullLogger<TabDelimitedWriter>.Instance);
 
-        var act = () => writer.WriteAsync([], CancellationToken.None);
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*No records*");
+        var path = await writer.WriteAsync([], CancellationToken.None);
+        path.Should().BeNull();
     }
 
     [Fact]
@@ -65,7 +64,7 @@ public class TabDelimitedWriterTests
                 Output = new Configuration.OutputConfig { Directory = tempDir, FilePrefix = "test" }
             });
 
-        var writer = new TabDelimitedWriter(config);
+        var writer = new TabDelimitedWriter(config, Microsoft.Extensions.Logging.Abstractions.NullLogger<TabDelimitedWriter>.Instance);
         var records = new List<CanonicalWeatherRecord>
         {
             new()

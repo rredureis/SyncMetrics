@@ -1,5 +1,8 @@
 ﻿namespace SyncMetrics.Pipeline.Extraction;
 
+/// <summary>
+/// Provides a wrapper around an HTTP client for sending HTTP requests and receiving responses as strings.
+/// </summary>
 public sealed class HttpClientWrapper : IHttpClientWrapper
 {
     private readonly HttpClient _client;

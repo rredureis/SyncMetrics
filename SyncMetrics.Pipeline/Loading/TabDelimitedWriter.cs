@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using SyncMetrics.Pipeline.Configuration;
 using SyncMetrics.Pipeline.Models;
 using System.Globalization;
@@ -9,6 +10,7 @@ namespace SyncMetrics.Pipeline.Loading;
 public sealed class TabDelimitedWriter : IOutputWriter
 {
     private readonly OutputConfig _config;
+    private readonly ILogger<TabDelimitedWriter> _logger;
 
     private static readonly string[] Headers =
     [
@@ -17,14 +19,20 @@ public sealed class TabDelimitedWriter : IOutputWriter
         "PrecipitationMm", "WindSpeedMaxKmh", "UvIndexMax"
     ];
 
-    public TabDelimitedWriter(IOptions<PipelineConfig> config) =>
+    public TabDelimitedWriter(IOptions<PipelineConfig> config, ILogger<TabDelimitedWriter> logger)
+    {
         _config = config.Value.Output;
+        _logger = logger;
+    }
 
-    public async Task<string> WriteAsync(IReadOnlyList<CanonicalWeatherRecord> records,
+    public async Task<string?> WriteAsync(IReadOnlyList<CanonicalWeatherRecord> records,
                                           CancellationToken ct = default)
     {
         if (records.Count == 0)
-            throw new InvalidOperationException("No records to write.");
+        {
+            _logger.LogError("WriteAsync called with no records; output file will not be created.");
+            return null;
+        }
 
         Directory.CreateDirectory(_config.Directory);
         var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");

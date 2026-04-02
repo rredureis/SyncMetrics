@@ -4,6 +4,6 @@ namespace SyncMetrics.Pipeline.Loading;
 
 public interface IOutputWriter
 {
-    Task<string> WriteAsync(IReadOnlyList<CanonicalWeatherRecord> records,
-                            CancellationToken ct = default);
+    Task<string?> WriteAsync(IReadOnlyList<CanonicalWeatherRecord> records,
+                             CancellationToken ct = default);
 }
