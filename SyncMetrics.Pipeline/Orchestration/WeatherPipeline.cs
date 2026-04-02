@@ -100,7 +100,7 @@ public sealed class WeatherPipeline
             SuccessfulLocations = results.Count(r => r.Result.Success),
             FailedLocations = results.Count(r => !r.Result.Success),
             TotalRecords = valid.Count,
-            AllWarnings = warnings.Concat(results.SelectMany(r => r.Result.Warnings)).ToList(),
+            AllWarnings = warnings,
             Results = results.Select(r => r.Result).ToList(),
             OutputFilePath = outputPath
         };

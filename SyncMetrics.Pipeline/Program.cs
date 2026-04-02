@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Extensions.Http;
@@ -31,8 +30,9 @@ services.AddLogging(builder =>
 services.Configure<PipelineConfig>(config.GetSection("Pipeline"));
 
 // HTTP client with Polly retry policy (bonus requirement)
+var retryConfig = config.GetSection("Pipeline:Retry").Get<RetryConfig>() ?? new RetryConfig();
 services.AddHttpClient<IHttpClientWrapper, HttpClientWrapper>("OpenMeteo")
-    .AddPolicyHandler(GetRetryPolicy(config));
+    .AddPolicyHandler(GetRetryPolicy(retryConfig));
 
 // Extraction — register sources (strategy pattern with self-selection)
 services.AddTransient<IWeatherSource, OpenMeteoSource>();
@@ -66,18 +66,14 @@ summary.PrintToConsole();
 return summary.FailedLocations > 0 ? 1 : 0;
 
 // --- Polly retry policy ---
-static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(IConfiguration config)
+static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(RetryConfig retry)
 {
-    var retryConfig = config.GetSection("Pipeline:Retry");
-    var maxRetries = retryConfig.GetValue("MaxRetries", 3);
-    var baseDelay = retryConfig.GetValue("BaseDelaySeconds", 2);
-
     return HttpPolicyExtensions
         .HandleTransientHttpError()
         .OrResult(r => r.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
         .WaitAndRetryAsync(
-            maxRetries,
-            attempt => TimeSpan.FromSeconds(Math.Pow(baseDelay, attempt)),
+            retry.MaxRetries,
+            attempt => TimeSpan.FromSeconds(Math.Pow(retry.BaseDelaySeconds, attempt)),
             onRetry: (outcome, delay, attempt, _) =>
             {
                 Console.WriteLine($"  [Retry] Attempt {attempt} after {delay.TotalSeconds:F1}s " +
