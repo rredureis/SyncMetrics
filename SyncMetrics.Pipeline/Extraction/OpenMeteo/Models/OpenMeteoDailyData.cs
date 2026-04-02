@@ -21,14 +21,4 @@ public sealed class OpenMeteoDailyData
 
     [JsonPropertyName("uv_index_max")]
     public List<decimal?>? UvIndexMax { get; set; }
-
-    public List<decimal?>? GetFieldData(string sourceName) => sourceName switch
-    {
-        "temperature_2m_max" => Temperature2mMax,
-        "temperature_2m_min" => Temperature2mMin,
-        "precipitation_sum" => PrecipitationSum,
-        "wind_speed_10m_max" => WindSpeed10mMax,
-        "uv_index_max" => UvIndexMax,
-        _ => null
-    };
 }
