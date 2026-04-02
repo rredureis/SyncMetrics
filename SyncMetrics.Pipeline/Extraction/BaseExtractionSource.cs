@@ -10,7 +10,7 @@ public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
 {
     protected readonly SourceConfig Config;
 
-    // Static per-type-instantiation: computed once per TDailyData, shared across all instances.
+    // Static per-type-instantiation: computed once per TSourceData, shared across all instances.
     private static readonly IReadOnlyDictionary<string, PropertyInfo> SourceProperties =
         BuildSourcePropertyMap();
 
@@ -85,28 +85,33 @@ public abstract class BaseExtractionSource<TSourceData, TCanonicalRecord>
         return dict;
     }
 
-    private static object? ConvertValue(decimal? value, string mappingType, Type targetType)
+    private static object? ConvertValue(object? rawValue, string mappingType, Type targetType)
     {
-        if (!value.HasValue)
+        if (rawValue is null)
             return null;
 
-        var underlying = Nullable.GetUnderlyingType(targetType) ?? targetType;
-
-        return mappingType.ToLowerInvariant() switch
+        // Step 1 — interpret rawValue as the declared source type from FieldMapping.Type
+        object parsed = mappingType.ToLowerInvariant() switch
         {
-            "decimal" => (decimal?)value.Value,
-            "double" => (double?)Convert.ToDouble(value.Value),
-            "float" => (float?)Convert.ToSingle(value.Value),
-            "int" or "integer" => (int?)Convert.ToInt32(value.Value),
-            "string" => value.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            _ => Convert.ChangeType(value.Value, underlying)
+            "decimal"          => Convert.ToDecimal(rawValue),
+            "double"           => Convert.ToDouble(rawValue),
+            "float"            => Convert.ToSingle(rawValue),
+            "int" or "integer" => Convert.ToInt32(rawValue),
+            "string"           => rawValue.ToString()!,
+            _                  => rawValue
         };
+
+        // Step 2 — convert the intermediate value to the actual target property type
+        var underlying = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        return underlying == parsed.GetType()
+            ? parsed
+            : Convert.ChangeType(parsed, underlying);
     }
 
-    private static List<decimal?>? GetSourceArray(TSourceData dailyData, string sourceName)
+    private static System.Collections.IList? GetSourceArray(TSourceData sourceData, string sourceName)
     {
         if (!SourceProperties.TryGetValue(sourceName, out var prop))
             return null;
-        return prop.GetValue(dailyData) as List<decimal?>;
+        return prop.GetValue(sourceData) as System.Collections.IList;
     }
 }

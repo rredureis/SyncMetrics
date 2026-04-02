@@ -21,14 +21,6 @@ public sealed class OpenMeteoSource : BaseExtractionSource<OpenMeteoDailyData, C
 
     public override string SourceName => "OpenMeteo";
 
-    public string BuildUrl(Location loc)
-    {
-        var lat = loc.Latitude.ToString(CultureInfo.InvariantCulture);
-        var lon = loc.Longitude.ToString(CultureInfo.InvariantCulture);
-        return $"{Config.BaseUrl}?latitude={lat}&longitude={lon}" +
-               $"&daily={Config.DailyFields}&timezone=auto&forecast_days={Config.ForecastDays}";
-    }
-
     public override bool CanHandle(string sourceName) =>
             string.Equals(sourceName, SourceName, StringComparison.OrdinalIgnoreCase);
 
@@ -41,7 +33,7 @@ public sealed class OpenMeteoSource : BaseExtractionSource<OpenMeteoDailyData, C
         return MapToCanonical(response.Daily!, response.Daily!.Time!, location);
     }
 
-    internal static OpenMeteoResponse ParseResponse(string json)
+    private static OpenMeteoResponse ParseResponse(string json)
     {
         OpenMeteoResponse? response;
         try
@@ -57,5 +49,13 @@ public sealed class OpenMeteoSource : BaseExtractionSource<OpenMeteoDailyData, C
             throw new InvalidOperationException("OpenMeteo response missing daily time series data.");
 
         return response;
+    }
+
+    private string BuildUrl(Location loc)
+    {
+        var lat = loc.Latitude.ToString(CultureInfo.InvariantCulture);
+        var lon = loc.Longitude.ToString(CultureInfo.InvariantCulture);
+        return $"{Config.BaseUrl}?latitude={lat}&longitude={lon}" +
+               $"&daily={Config.DailyFields}&timezone=auto&forecast_days={Config.ForecastDays}";
     }
 }

@@ -29,35 +29,37 @@ public class OpenMeteoSourceTests
 
     private readonly Location _nyc = new("New York", 40.7128, -74.0060);
 
+    private static IOptions<PipelineConfig> DefaultConfig() => Options.Create(new PipelineConfig
+    {
+        Sources = new Dictionary<string, SourceConfig>
+        {
+            ["OpenMeteo"] = new SourceConfig
+            {
+                BaseUrl = "https://api.open-meteo.com/v1/forecast",
+                DailyFields = "temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,uv_index_max",
+                ForecastDays = 7,
+                FieldMappings =
+                [
+                    new FieldMapping { Source = "temperature_2m_max", Target = "TemperatureMaxC", Type = "decimal" },
+                    new FieldMapping { Source = "temperature_2m_min", Target = "TemperatureMinC", Type = "decimal" },
+                    new FieldMapping { Source = "precipitation_sum",  Target = "PrecipitationMm",  Type = "decimal" },
+                    new FieldMapping { Source = "wind_speed_10m_max", Target = "WindSpeedMaxKmh",  Type = "decimal" },
+                    new FieldMapping { Source = "uv_index_max",       Target = "UvIndexMax",       Type = "decimal" }
+                ]
+            }
+        }
+    });
+
     private OpenMeteoSource CreateSource(string jsonResponse)
     {
         var http = Substitute.For<IHttpClientWrapper>();
         http.GetStringAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(jsonResponse);
-
-        var config = Options.Create(new PipelineConfig
-        {
-            Sources = new Dictionary<string, SourceConfig>
-            {
-                ["OpenMeteo"] = new SourceConfig
-                {
-                    BaseUrl = "https://api.open-meteo.com/v1/forecast",
-                    DailyFields = "temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,uv_index_max",
-                    ForecastDays = 7,
-                    FieldMappings =
-                    [
-                        new FieldMapping { Source = "temperature_2m_max", Target = "TemperatureMaxC", Type = "decimal" },
-                        new FieldMapping { Source = "temperature_2m_min", Target = "TemperatureMinC", Type = "decimal" },
-                        new FieldMapping { Source = "precipitation_sum",  Target = "PrecipitationMm",  Type = "decimal" },
-                        new FieldMapping { Source = "wind_speed_10m_max", Target = "WindSpeedMaxKmh",  Type = "decimal" },
-                        new FieldMapping { Source = "uv_index_max",       Target = "UvIndexMax",       Type = "decimal" }
-                    ]
-                }
-            }
-        });
-
-        return new OpenMeteoSource(http, config);
+        return CreateSource(http);
     }
+
+    private OpenMeteoSource CreateSource(IHttpClientWrapper http) =>
+        new(http, DefaultConfig());
 
     [Fact]
     public async Task FetchAsync_ValidResponse_ReturnsCorrectRecordCount()
@@ -171,15 +173,22 @@ public class OpenMeteoSourceTests
     }
 
     [Fact]
-    public void BuildUrl_FormatsCorrectly()
+    public async Task FetchAsync_BuildsCorrectUrl()
     {
-        var source = CreateSource(ValidResponse);
-        var url = source.BuildUrl(_nyc);
+        var http = Substitute.For<IHttpClientWrapper>();
+        http.GetStringAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ValidResponse);
 
-        url.Should().Contain("latitude=40.7128");
-        url.Should().Contain("longitude=-74.006");
-        url.Should().Contain("forecast_days=7");
-        url.Should().Contain("timezone=auto");
+        var source = CreateSource(http);
+        await source.FetchAsync(_nyc);
+
+        await http.Received(1).GetStringAsync(
+            Arg.Is<string>(url =>
+                url.Contains("latitude=40.7128") &&
+                url.Contains("longitude=-74.006") &&
+                url.Contains("forecast_days=7") &&
+                url.Contains("timezone=auto")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
