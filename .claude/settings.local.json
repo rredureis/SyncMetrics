@@ -5,7 +5,8 @@
       "Bash(dotnet test:*)",
       "Bash(dotnet new gitignore:*)",
       "Bash(dotnet run:*)",
-      "Bash(xxd)"
+      "Bash(xxd)",
+      "Bash(dotnet clean:*)"
     ]
   }
 }

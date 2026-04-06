@@ -7,6 +7,7 @@ using Polly.Extensions.Http;
 using SyncMetrics.Pipeline.Configuration;
 using SyncMetrics.Pipeline.Extraction;
 using SyncMetrics.Pipeline.Extraction.OpenMeteo;
+using SyncMetrics.Pipeline.Extraction.Wttr;
 using SyncMetrics.Pipeline.Loading;
 using SyncMetrics.Pipeline.Models;
 using SyncMetrics.Pipeline.Orchestration;
@@ -31,12 +32,12 @@ services.Configure<PipelineConfig>(config.GetSection("Pipeline"));
 
 // HTTP client with Polly retry policy (bonus requirement)
 var retryConfig = config.GetSection("Pipeline:Retry").Get<RetryConfig>() ?? new RetryConfig();
-services.AddHttpClient<IHttpClientWrapper, HttpClientWrapper>("OpenMeteo")
+services.AddHttpClient<IHttpClientWrapper, HttpClientWrapper>()
     .AddPolicyHandler(GetRetryPolicy(retryConfig));
 
 // Extraction — register sources (strategy pattern with self-selection)
 services.AddTransient<IWeatherSource, OpenMeteoSource>();
-// Future: services.AddTransient<IWeatherSource, WeatherApiSource>();
+services.AddTransient<IWeatherSource, WttrSource>();
 
 // Transformation
 services.AddTransient<IWeatherTransformer, WeatherTransformer>();
@@ -58,12 +59,24 @@ var locations = pipelineConfig.Locations
 Console.WriteLine($"SyncMetrics Weather Pipeline — fetching {locations.Count} locations...");
 Console.WriteLine();
 
-// Run pipeline
+// Run pipeline for all registered sources
 var pipeline = provider.GetRequiredService<WeatherPipeline>();
-var summary = await pipeline.RunAsync(locations, "OpenMeteo");
-summary.PrintToConsole();
+var sources = provider.GetRequiredService<IEnumerable<IWeatherSource>>();
 
-return summary.FailedLocations > 0 ? 1 : 0;
+var allFailed = 0;
+foreach (var source in sources)
+{
+    Console.WriteLine($"--- Running pipeline for source: {source.SourceName} ---");
+    Console.WriteLine();
+
+    var summary = await pipeline.RunAsync(locations, source.SourceName);
+    summary.PrintToConsole();
+
+    allFailed += summary.FailedLocations;
+    Console.WriteLine();
+}
+
+return allFailed > 0 ? 1 : 0;
 
 // --- Polly retry policy ---
 static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy(RetryConfig retry)
