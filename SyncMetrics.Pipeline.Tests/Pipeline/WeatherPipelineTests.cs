@@ -53,7 +53,7 @@ public class WeatherPipelineTests
             .Returns("output/test.tsv");
 
         var pipeline = CreatePipeline([source], transformer, writer);
-        var summary = await pipeline.RunAsync([Nyc, London], "TestSource");
+        var summary = await pipeline.RunAsync([Nyc, London], "TestSource", TestContext.Current.CancellationToken);
 
         summary.TotalLocations.Should().Be(2);
         summary.SuccessfulLocations.Should().Be(2);
@@ -79,7 +79,7 @@ public class WeatherPipelineTests
             .Returns("output/test.tsv");
 
         var pipeline = CreatePipeline([source], transformer, writer);
-        var summary = await pipeline.RunAsync([Nyc, London], "TestSource");
+        var summary = await pipeline.RunAsync([Nyc, London], "TestSource", TestContext.Current.CancellationToken);
 
         summary.SuccessfulLocations.Should().Be(1);
         summary.FailedLocations.Should().Be(1);
@@ -95,7 +95,7 @@ public class WeatherPipelineTests
 
         var pipeline = CreatePipeline([source], new WeatherTransformer(), Substitute.For<IOutputWriter>());
 
-        var summary = await pipeline.RunAsync([Nyc], "UnknownApi");
+        var summary = await pipeline.RunAsync([Nyc], "UnknownApi", TestContext.Current.CancellationToken);
 
         summary.FailedLocations.Should().Be(1);
         summary.SuccessfulLocations.Should().Be(0);
@@ -115,7 +115,7 @@ public class WeatherPipelineTests
         var writer = Substitute.For<IOutputWriter>();
         var pipeline = CreatePipeline([source], new WeatherTransformer(), writer);
 
-        var summary = await pipeline.RunAsync([Nyc, London], "TestSource");
+        var summary = await pipeline.RunAsync([Nyc, London], "TestSource", TestContext.Current.CancellationToken);
 
         summary.FailedLocations.Should().Be(2);
         summary.TotalRecords.Should().Be(0);
@@ -150,7 +150,7 @@ public class WeatherPipelineTests
             .Select(i => new Location($"City{i}", 40 + i, -74 + i))
             .ToList();
 
-        var summary = await pipeline.RunAsync(locations, "TestSource");
+        var summary = await pipeline.RunAsync(locations, "TestSource", TestContext.Current.CancellationToken);
 
         summary.SuccessfulLocations.Should().Be(10);
         summary.TotalRecords.Should().Be(10);

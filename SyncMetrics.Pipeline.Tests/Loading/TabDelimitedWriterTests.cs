@@ -77,12 +77,12 @@ public class TabDelimitedWriterTests
             }
         };
 
-        var path = await writer.WriteAsync(records);
+        var path = await writer.WriteAsync(records, TestContext.Current.CancellationToken);
 
         try
         {
             File.Exists(path).Should().BeTrue();
-            var lines = await File.ReadAllLinesAsync(path);
+            var lines = await File.ReadAllLinesAsync(path!, TestContext.Current.CancellationToken);
             lines.Should().HaveCount(2); // header + 1 data row
 
             var header = lines[0].Split('\t');

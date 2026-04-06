@@ -66,7 +66,7 @@ public class OpenMeteoSourceTests
     public async Task FetchAsync_ValidResponse_ReturnsCorrectRecordCount()
     {
         var source = CreateSource(ValidResponse);
-        var records = await source.FetchAsync(_nyc);
+        var records = await source.FetchAsync(_nyc, TestContext.Current.CancellationToken);
 
         records.Should().HaveCount(3);
     }
@@ -75,7 +75,7 @@ public class OpenMeteoSourceTests
     public async Task FetchAsync_ValidResponse_MapsFieldsCorrectly()
     {
         var source = CreateSource(ValidResponse);
-        var records = await source.FetchAsync(_nyc);
+        var records = await source.FetchAsync(_nyc, TestContext.Current.CancellationToken);
 
         var first = records[0];
         first.LocationName.Should().Be("New York");
@@ -92,7 +92,7 @@ public class OpenMeteoSourceTests
     public async Task FetchAsync_NullValues_PreservedAsNull()
     {
         var source = CreateSource(ValidResponse);
-        var records = await source.FetchAsync(_nyc);
+        var records = await source.FetchAsync(_nyc, TestContext.Current.CancellationToken);
 
         // Third record has null temperature_2m_max and null uv_index_max
         var third = records[2];
@@ -106,7 +106,7 @@ public class OpenMeteoSourceTests
     public async Task FetchAsync_MalformedJson_ThrowsSoCallerRecordsFailure()
     {
         var source = CreateSource("{ this is not valid json }}}");
-        var act = () => source.FetchAsync(_nyc);
+        var act = () => source.FetchAsync(_nyc, TestContext.Current.CancellationToken);
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Failed to parse*");
     }
@@ -115,7 +115,7 @@ public class OpenMeteoSourceTests
     public async Task FetchAsync_MissingDailyData_ThrowsSoCallerRecordsFailure()
     {
         var source = CreateSource("""{ "latitude": 40.71, "longitude": -74.01 }""");
-        var act = () => source.FetchAsync(_nyc);
+        var act = () => source.FetchAsync(_nyc, TestContext.Current.CancellationToken);
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Failed to parse*");
     }
@@ -131,7 +131,7 @@ public class OpenMeteoSourceTests
         }
         """;
         var source = CreateSource(json);
-        var act = () => source.FetchAsync(_nyc);
+        var act = () => source.FetchAsync(_nyc, TestContext.Current.CancellationToken);
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Failed to parse*");
     }
@@ -161,7 +161,7 @@ public class OpenMeteoSourceTests
         });
 
         var source = new OpenMeteoSource(http, config, NullLogger<OpenMeteoSource>.Instance);
-        var act = () => source.FetchAsync(_nyc);
+        var act = () => source.FetchAsync(_nyc, TestContext.Current.CancellationToken);
 
         await act.Should().ThrowAsync<HttpRequestException>();
     }
@@ -174,7 +174,7 @@ public class OpenMeteoSourceTests
             .Returns(ValidResponse);
 
         var source = CreateSource(http);
-        await source.FetchAsync(_nyc);
+        await source.FetchAsync(_nyc, TestContext.Current.CancellationToken);
 
         await http.Received(1).GetStringAsync(
             Arg.Is<string>(url =>
@@ -204,7 +204,7 @@ public class OpenMeteoSourceTests
         }
         """;
         var source = CreateSource(json);
-        var records = await source.FetchAsync(_nyc);
+        var records = await source.FetchAsync(_nyc, TestContext.Current.CancellationToken);
 
         records.Should().HaveCount(2);
         records[0].WindSpeedMaxKmh.Should().Be(25.4m);
